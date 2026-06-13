@@ -12,67 +12,28 @@ interface ChatInterfaceProps {
   onSendMessage: (text: string) => void;
   isLoading: boolean;
   error: string | null;
+  isVoiceModeActive: boolean;
+  isListening: boolean;
+  onToggleVoiceMode: () => void;
 }
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   messages,
   onSendMessage,
   isLoading,
-  error
+  error,
+  isVoiceModeActive,
+  isListening,
+  onToggleVoiceMode
 }) => {
   const [input, setInput] = useState('');
-  const [isListening, setIsListening] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
     onSendMessage(input.trim());
     setInput('');
-  };
-
-  // Initialize Speech Recognition
-  useEffect(() => {
-    const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognitionAPI) {
-      const rec = new SpeechRecognitionAPI();
-      rec.continuous = false;
-      rec.interimResults = false;
-      rec.lang = 'en-US';
-
-      rec.onstart = () => {
-        setIsListening(true);
-      };
-
-      rec.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setInput((prev) => (prev ? prev + ' ' + transcript : transcript));
-      };
-
-      rec.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
-        setIsListening(false);
-      };
-
-      rec.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = rec;
-    }
-  }, []);
-
-  const toggleListening = () => {
-    if (!recognitionRef.current) {
-      alert("Sir, Speech Recognition is not supported on this browser. I recommend Google Chrome.");
-      return;
-    }
-    if (isListening) {
-      recognitionRef.current.stop();
-    } else {
-      recognitionRef.current.start();
-    }
   };
 
   // Auto scroll to bottom on new messages
@@ -206,19 +167,21 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           className="w-full bg-obsidian-panel/70 border border-hud-border rounded-xl pl-4 pr-24 py-3.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-jarvis-cyan/50 focus:ring-1 focus:ring-jarvis-cyan/30 transition-all duration-300 disabled:opacity-60"
         />
 
-        {/* Voice Input Mic Button */}
+        {/* Voice Input Mic Button (Converse Mode toggle) */}
         <button
           type="button"
-          onClick={toggleListening}
+          onClick={onToggleVoiceMode}
           disabled={isLoading}
           className={`absolute right-12 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-300 cursor-pointer border ${
-            isListening 
-              ? 'bg-jarvis-rose/10 border-jarvis-rose/50 text-jarvis-rose shadow-[0_0_10px_rgba(244,63,94,0.4)] animate-pulse'
+            isVoiceModeActive 
+              ? isListening
+                ? 'bg-jarvis-rose/10 border-jarvis-rose/50 text-jarvis-rose shadow-[0_0_10px_rgba(244,63,94,0.4)] animate-pulse'
+                : 'bg-jarvis-cyan/15 border-jarvis-cyan/40 text-jarvis-cyan shadow-[0_0_8px_rgba(6,182,212,0.2)] animate-pulse-slow'
               : 'bg-slate-800/10 border-hud-border/50 text-slate-400 hover:text-jarvis-cyan hover:border-jarvis-cyan/40 hover:bg-jarvis-cyan/5'
           }`}
-          title="Voice Command"
+          title={isVoiceModeActive ? "Deactivate Voice-to-Voice Mode" : "Activate Voice-to-Voice Mode"}
         >
-          {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+          {isVoiceModeActive ? isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5 animate-pulse" /> : <Mic className="w-3.5 h-3.5" />}
         </button>
 
         <button

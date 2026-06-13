@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ChatInterface } from './components/ChatInterface';
 import { Dashboard } from './components/Dashboard';
 import { Sparkles, Terminal, Volume2, VolumeX } from 'lucide-react';
@@ -55,7 +55,7 @@ const loadLocalState = (): StudentState => {
   return DEFAULT_STATE;
 };
 
-const speakText = (text: string) => {
+const speakText = (text: string, onSpeechEnd?: () => void) => {
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
     
@@ -78,6 +78,13 @@ const speakText = (text: string) => {
     
     utterance.rate = 1.05;
     utterance.pitch = 0.95;
+
+    if (onSpeechEnd) {
+      utterance.onend = () => {
+        onSpeechEnd();
+      };
+    }
+
     window.speechSynthesis.speak(utterance);
   }
 };
@@ -87,16 +94,110 @@ function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Voice mode states
+  const [isVoiceModeActive, setIsVoiceModeActive] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
+
+  const isVoiceModeActiveRef = useRef(isVoiceModeActive);
+  const isListeningRef = useRef(isListening);
+  const isLoadingRef = useRef(isLoading);
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    isVoiceModeActiveRef.current = isVoiceModeActive;
+  }, [isVoiceModeActive]);
+
+  useEffect(() => {
+    isListeningRef.current = isListening;
+  }, [isListening]);
+
+  useEffect(() => {
+    isLoadingRef.current = isLoading;
+  }, [isLoading]);
+
+  // Initialize Speech Recognition
+  useEffect(() => {
+    const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognitionAPI) {
+      const rec = new SpeechRecognitionAPI();
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.lang = 'en-US';
+
+      rec.onstart = () => {
+        setIsListening(true);
+      };
+
+      rec.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript.trim()) {
+          handleSendMessageRef.current(transcript.trim());
+        }
+      };
+
+      rec.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+
+      rec.onend = () => {
+        setIsListening(false);
+        // If Voice Mode is active and we are NOT loading or speaking, restart listening!
+        setTimeout(() => {
+          if (
+            isVoiceModeActiveRef.current && 
+            !isListeningRef.current && 
+            !isLoadingRef.current && 
+            !window.speechSynthesis.speaking
+          ) {
+            try {
+              recognitionRef.current.start();
+            } catch (e) {
+              console.warn('Speech restart error:', e);
+            }
+          }
+        }, 150);
+      };
+
+      recognitionRef.current = rec;
+    }
+  }, []);
+
+  // Sync isMuted with isVoiceModeActive
+  useEffect(() => {
+    if (isMuted && isVoiceModeActive) {
+      setIsVoiceModeActive(false);
+      try {
+        recognitionRef.current?.stop();
+      } catch (e) {}
+    }
+  }, [isMuted]);
 
   // Trigger speech synthesis when a new Jarvis message is received
   useEffect(() => {
     if (messages.length === 0 || isMuted) return;
     const lastMsg = messages[messages.length - 1];
     if (lastMsg.sender === 'jarvis') {
-      speakText(lastMsg.text);
+      if (isVoiceModeActive) {
+        speakText(lastMsg.text, () => {
+          // On speech synthesis end callback: restart microphone if still active
+          setTimeout(() => {
+            if (isVoiceModeActiveRef.current && !isListeningRef.current && !isLoadingRef.current) {
+              try {
+                recognitionRef.current.start();
+              } catch (e) {
+                console.warn('Speech restart end callback error:', e);
+              }
+            }
+          }, 150);
+        });
+      } else {
+        speakText(lastMsg.text);
+      }
     }
-  }, [messages, isMuted]);
+  }, [messages, isMuted, isVoiceModeActive]);
 
   // Stop speaking if user mutes mid-sentence
   useEffect(() => {
@@ -104,6 +205,33 @@ function App() {
       window.speechSynthesis.cancel();
     }
   }, [isMuted]);
+
+  const handleToggleVoiceMode = () => {
+    if (!recognitionRef.current) {
+      alert("Sir, Speech Recognition is not supported on this browser. I recommend Google Chrome.");
+      return;
+    }
+
+    if (isVoiceModeActive) {
+      setIsVoiceModeActive(false);
+      setIsMuted(true);
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    } else {
+      setIsVoiceModeActive(true);
+      setIsMuted(false);
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      try {
+        recognitionRef.current.start();
+      } catch (e) {}
+    }
+  };
 
   const updateStateAndPersist = (newState: StudentState) => {
     setState(newState);
@@ -180,6 +308,11 @@ function App() {
       setIsLoading(false);
     }
   };
+
+  const handleSendMessageRef = useRef(handleSendMessage);
+  useEffect(() => {
+    handleSendMessageRef.current = handleSendMessage;
+  }, [handleSendMessage]);
 
   const handleResetState = async () => {
     setIsLoading(true);
@@ -260,6 +393,9 @@ function App() {
             onSendMessage={handleSendMessage}
             isLoading={isLoading}
             error={error}
+            isVoiceModeActive={isVoiceModeActive}
+            isListening={isListening}
+            onToggleVoiceMode={handleToggleVoiceMode}
           />
         </section>
 
