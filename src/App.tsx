@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ChatInterface } from './components/ChatInterface';
 import { Dashboard } from './components/Dashboard';
-import { Sparkles, Terminal } from 'lucide-react';
+import { Sparkles, Terminal, Volume2, VolumeX } from 'lucide-react';
 
 interface WellnessState {
   current_mood: string;
@@ -55,11 +55,55 @@ const loadLocalState = (): StudentState => {
   return DEFAULT_STATE;
 };
 
+const speakText = (text: string) => {
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+    
+    // Clean emojis and markdown formatting
+    const cleanText = text
+      .replace(/[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]/g, '')
+      .replace(/\*|_|#/g, '');
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    const voices = window.speechSynthesis.getVoices();
+    
+    // Attempt to select a premium British voice for Jarvis
+    const voice = voices.find(v => 
+      v.name.includes('Google UK English Male') || 
+      v.name.includes('Male') && v.lang.startsWith('en') ||
+      v.name.includes('George') || 
+      v.lang === 'en-GB'
+    );
+    if (voice) utterance.voice = voice;
+    
+    utterance.rate = 1.05;
+    utterance.pitch = 0.95;
+    window.speechSynthesis.speak(utterance);
+  }
+};
+
 function App() {
   const [state, setState] = useState<StudentState>(loadLocalState);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isMuted, setIsMuted] = useState(true);
+
+  // Trigger speech synthesis when a new Jarvis message is received
+  useEffect(() => {
+    if (messages.length === 0 || isMuted) return;
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg.sender === 'jarvis') {
+      speakText(lastMsg.text);
+    }
+  }, [messages, isMuted]);
+
+  // Stop speaking if user mutes mid-sentence
+  useEffect(() => {
+    if (isMuted && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+  }, [isMuted]);
 
   const updateStateAndPersist = (newState: StudentState) => {
     setState(newState);
@@ -181,6 +225,21 @@ function App() {
         
         {/* Connection status indicator */}
         <div className="flex items-center gap-4 text-xs font-mono">
+          {/* Mute/Unmute Jarvis Speech */}
+          <button
+            type="button"
+            onClick={() => setIsMuted(!isMuted)}
+            className={`flex items-center gap-2 border px-3 py-1.5 rounded-lg transition-all duration-300 cursor-pointer ${
+              !isMuted 
+                ? 'border-jarvis-cyan/40 bg-jarvis-cyan/10 text-jarvis-cyan shadow-[0_0_10px_rgba(6,182,212,0.15)] animate-pulse'
+                : 'border-hud-border bg-obsidian-panel/80 text-slate-400 hover:text-jarvis-cyan hover:border-jarvis-cyan/30'
+            }`}
+            title={isMuted ? "Unmute Jarvis Voice" : "Mute Jarvis Voice"}
+          >
+            {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+            <span>VOICE: {isMuted ? 'MUTED' : 'ACTIVE'}</span>
+          </button>
+
           <div className="flex items-center gap-2 border border-hud-border bg-obsidian-panel/80 px-3 py-1.5 rounded-lg text-slate-400">
             <Terminal className="w-3.5 h-3.5 text-jarvis-cyan" />
             <span>MODEL: GEMINI-2.5-FLASH</span>
